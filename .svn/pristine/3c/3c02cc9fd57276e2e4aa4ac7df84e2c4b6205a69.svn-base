@@ -1,0 +1,78 @@
+package com.yz.album.api.v1;
+
+
+import com.yz.album.api.ApiVersion;
+import com.yz.album.api.BaseApi;
+import com.yz.album.api.dto.Album;
+import com.yz.album.api.dto.ApiResponse;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+@RestController("PraiseApi_v1")
+@RequestMapping("/{version}/praise")
+@ApiVersion(1)
+public class PraiseApi extends BaseApi {
+
+    /**
+     * 谁点赞/取消点赞了某本书
+     * @return
+     */
+
+    @RequestMapping("/switch")
+    public ApiResponse switchPraise(@RequestHeader Integer userId, @RequestParam Integer albumId){
+        ApiResponse apiResponse = new ApiResponse();
+
+        boolean isExists = dslContext
+                .fetchExists(dslContext
+                        .selectFrom(USER_ALBUM_PRAISE)
+                        .where(USER_ALBUM_PRAISE.USER_ID.eq(userId),USER_ALBUM_PRAISE.ALBUM_ID.eq(albumId)));
+        Map<String, Object> map = new HashMap<>();
+        try {
+            if (isExists) {
+                dslContext.delete(USER_ALBUM_PRAISE)
+                        .where(USER_ALBUM_PRAISE.USER_ID.eq(userId), USER_ALBUM_PRAISE.ALBUM_ID.eq(albumId)).execute();
+                map.put("status", "0");
+                map.put("explain", "取消点赞成功");
+            } else {
+                dslContext.insertInto(USER_ALBUM_PRAISE)
+                        .columns(USER_ALBUM_PRAISE.USER_ID, USER_ALBUM_PRAISE.ALBUM_ID)
+                        .values(userId, albumId).execute();
+                map.put("status", "1");
+                map.put("explain", "点赞成功");
+            }
+        }catch (Exception e){
+            map.put("status","-1");
+            map.put("explain","系统异常");
+        }
+        apiResponse.setSuccessData(map);
+        return apiResponse;
+    }
+
+    /**
+     * 这是我自己加的吧
+     *返回某用户点赞的相册
+     * @param userId
+     * @return
+     */
+    @RequestMapping("/album/list")
+    public ApiResponse getUserPraise(@RequestHeader Integer userId){
+        ApiResponse apiResponse = new ApiResponse();
+
+       List<Album> albums =  dslContext.selectFrom(ALBUM)
+                .where(ALBUM.ID.in(
+                        dslContext.select(ALBUM.ID)
+                                .from(USER_ALBUM_PRAISE)
+                                .where(USER_ALBUM_PRAISE.USER_ID.eq(userId))))
+                .fetchInto(Album.class);
+
+        apiResponse.setSuccessData(albums);
+        return apiResponse;
+    }
+
+}

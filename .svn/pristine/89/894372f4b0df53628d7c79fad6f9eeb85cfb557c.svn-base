@@ -1,0 +1,146 @@
+package com.yz.album.util;
+
+import javax.crypto.BadPaddingException;
+import javax.crypto.Cipher;
+import javax.crypto.IllegalBlockSizeException;
+import javax.crypto.NoSuchPaddingException;
+import javax.crypto.spec.IvParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
+import java.io.UnsupportedEncodingException;
+import java.security.InvalidAlgorithmParameterException;
+import java.security.InvalidKeyException;
+import java.security.NoSuchAlgorithmException;
+
+public class AesUtil {
+    public static final String VIPARA = "1269571569321021";
+    public static final String bm = "utf-8";
+
+    /**
+     * 字节数组转化为大写16进制字符串
+     *
+     * @param b
+     * @return
+     */
+    private static String byte2HexStr(byte[] b) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < b.length; i++) {
+            String s = Integer.toHexString(b[i] & 0xFF);
+            if (s.length() == 1) {
+                sb.append("0");
+            }
+
+            sb.append(s.toUpperCase());
+        }
+
+        return sb.toString();
+    }
+
+    /**
+     * 16进制字符串转字节数组
+     *
+     * @param s
+     * @return
+     */
+    private static byte[] str2ByteArray(String s) {
+        int byteArrayLength = s.length() / 2;
+        byte[] b = new byte[byteArrayLength];
+        for (int i = 0; i < byteArrayLength; i++) {
+            byte b0 = (byte) Integer.valueOf(s.substring(i * 2, i * 2 + 2), 16)
+                    .intValue();
+            b[i] = b0;
+        }
+
+        return b;
+    }
+
+
+    /**
+     * AES 加密
+     *
+     * @param content
+     *            明文
+     * @param password
+     *            生成秘钥的关键字
+     * @return
+     */
+
+    public static String aesEncrypt(String content, String password) {
+        try {
+            IvParameterSpec zeroIv = new IvParameterSpec(VIPARA.getBytes());
+            SecretKeySpec key = new SecretKeySpec(password.getBytes(), "AES");
+            Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+            cipher.init(Cipher.ENCRYPT_MODE, key, zeroIv);
+            byte[] encryptedData = cipher.doFinal(content.getBytes(bm));
+
+            return Base64.encode(encryptedData);
+//          return byte2HexStr(encryptedData);
+        } catch (NoSuchAlgorithmException e) {
+            e.printStackTrace();
+        } catch (NoSuchPaddingException e) {
+            e.printStackTrace();
+        } catch (UnsupportedEncodingException e) {
+            e.printStackTrace();
+        } catch (InvalidKeyException e) {
+            e.printStackTrace();
+        } catch (IllegalBlockSizeException e) {
+            e.printStackTrace();
+        } catch (BadPaddingException e) {
+            e.printStackTrace();
+        } catch (InvalidAlgorithmParameterException e) {
+            // TODO Auto-generated catch block
+            e.printStackTrace();
+        }
+
+        return null;
+    }
+
+    /**
+     * AES 解密
+     *
+     * @param content
+     *            密文
+     * @param password
+     *            生成秘钥的关键字
+     * @return
+     */
+
+    public static String aesDecrypt(String content, String password) {
+        try {
+            byte[] byteMi = Base64.decode(content);
+//          byte[] byteMi=  str2ByteArray(content);
+            IvParameterSpec zeroIv = new IvParameterSpec(VIPARA.getBytes());
+            SecretKeySpec key = new SecretKeySpec(password.getBytes(), "AES");
+            Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+            cipher.init(Cipher.DECRYPT_MODE, key, zeroIv);
+            byte[] decryptedData = cipher.doFinal(byteMi);
+            return new String(decryptedData, "utf-8");
+        } catch (NoSuchAlgorithmException e) {
+            e.printStackTrace();
+        } catch (NoSuchPaddingException e) {
+            e.printStackTrace();
+        } catch (InvalidKeyException e) {
+            e.printStackTrace();
+        } catch (IllegalBlockSizeException e) {
+            e.printStackTrace();
+        } catch (BadPaddingException e) {
+            e.printStackTrace();
+        } catch (UnsupportedEncodingException e) {
+            e.printStackTrace();
+        } catch (InvalidAlgorithmParameterException e) {
+            // TODO Auto-generated catch block
+            e.printStackTrace();
+        }
+        return null;
+    }
+
+    public static void main(String[] args) {
+        String AesContent = AesUtil.aesEncrypt("thisistest","1259632153695615");
+        System.out.println(AesContent);
+        System.out.println(AesUtil.aesDecrypt("NCALDfV1gm2Ez9DR/rze87eIHPLE3JciUkYF1Xo/1IJF7WKx/g9qAuAs+Yrw 6oQvrVPIcZBR9Dy048SM5KJtxQ==","1259632153695615"));
+        System.out.println(AesUtil.aesDecrypt("wMG2TUi/G18RCUZPJhfYejNn7FnQcn4RwgfbT524+IEL3J+bB2E39PBiaPyh DkD7C/b6FosuVa43bcsJwNkJkOrddkmF1nspinqF7UTZUhBc88zGRTf14ywm EBmaCjz+VyhG6sTLdGganU03jIdmlyA+4A/upol8/g2hjtfeuCgdl5b/tyS8 ssf56K4bnDmJ79rtgW1klyEeCsEdI8kKIOtYp+tu41LdHVXMYiVvbVyFPlyU 7ly05ifF+4WYpFJRGqb1IM5yjYgn8f99V8y82w0e7uo7MZq/GJzEjeAtUtck TWl+5EwKTnjpxQEeix2LfWOPxjULd/LyPKB0DOuSNK85jezzwmQPvtR1F8L8 KEZye2/qwDs/ijLW5n/R36JWvjlVD02c4KCjGg+7XB30HXUouTSITiLjkoAJ v9kFTVnxD9ft3zxAD+m6LIvl7fFjfVhlVOA/SbbSng55pMPF+w8X4eKgfyDS mdlEeY8IH9EQuQoNUZdJFdUZatL7nj+ZQfwCHILCJU7kXPmL2D7NTrnnwWi2 IklR2xsmRHSoYolGszZkm+sjt00Kia2xhZ4tqlBCaDsdCAUkkvQP6jIyRcOO 1K7f6SKGawzWGtetbphW2brWxbzrEsaEnc+vPm74","1259632153695615"));
+
+
+    }
+
+}
+

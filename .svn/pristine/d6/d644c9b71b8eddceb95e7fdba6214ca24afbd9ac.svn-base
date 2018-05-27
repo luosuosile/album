@@ -1,0 +1,227 @@
+package com.yz.album.api.v1;
+
+import com.sun.org.apache.regexp.internal.RE;
+import com.yz.album.api.ApiResponse;
+import com.yz.album.api.ApiVersion;
+import com.yz.album.api.BaseApi;
+import com.yz.album.api.dto.Album;
+import com.yz.album.api.dto.Picture;
+import org.apache.commons.lang3.StringUtils;
+import org.jooq.*;
+import org.jooq.impl.DSL;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.BeanPropertyRowMapper;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.web.bind.annotation.*;
+import sun.java2d.pipe.AAShapePipe;
+
+import javax.servlet.http.HttpServletRequest;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.List;
+
+@RestController("AlbumApi_v1")
+@RequestMapping("/{version}/album")
+@ApiVersion(1)
+public class AlbumApi extends BaseApi {
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    /**
+     * 获取套图列表
+     *  favorite，read，banner，hot，categoryName，channelNum，rate，recommend是筛选条件
+     *  favorite是获取指定用户的收藏列表
+     *  read是获取指定用户的已读列表
+     *  banner是获取banner图，好像已废弃
+     *  hot是按照热门程度排序，通过album_user_read表筛选出每个套图的被阅读次数排序
+     *  categoryName是获取指定类型套图列表，如输入asia获取所有种类为asia的套图
+     *  rate是按照评论给出的分数来排序
+     *  recommend是推荐，随机排序。以后将根据用户行为来推荐，但是暂时没有足够的用户量，所以先用的随机
+     *  channelNum是album表的一个字段，作为筛选条件存在
+     * @return
+     */
+
+
+    @RequestMapping("list")
+    public ApiResponse getAlbumList(HttpServletRequest request, @RequestHeader Integer userId,
+                                    @RequestParam(defaultValue = "0") Integer offset, @RequestParam(defaultValue = "10") Integer limit,
+                                    @RequestParam(required = false) String favorite, @RequestParam(required = false) String read,
+                                    @RequestParam(required = false) String banner, @RequestParam(required = false) String hot,
+                                    @RequestParam(required = false) String categoryName, @RequestHeader(required = false) String channelNum,
+                                    @RequestParam(required = false) String rate,@RequestParam(required = false) String recommend,
+                                    @RequestParam(required = false) String download
+                                    ) {
+        ApiResponse apiResponse = new ApiResponse();
+        SelectJoinStep<Record> selectAlbum = dslContext.select(ALBUM.fields())//这个是选中Album中的所有列的意思
+                .select(dslContext.selectCount().from(USER_ALBUM_COMMENT).where(USER_ALBUM_COMMENT.ALBUM_ID.eq(ALBUM.ID)).asField("commentAmount"))
+                .select(dslContext.selectCount().from(USER_ALBUM_FAVORITE).where(USER_ALBUM_FAVORITE.ALBUM_ID.eq(ALBUM.ID)).asField("favoriteAmount"))
+                .select(dslContext.selectCount().from(USER_ALBUM_PRAISE).where(USER_ALBUM_PRAISE.ALBUM_ID.eq(ALBUM.ID)).asField("praiseAmount"))
+                .select(dslContext.selectCount().from(USER_ALBUM_READ).where(USER_ALBUM_READ.ALBUM_ID.eq(ALBUM.ID)).asField("readAmount"))
+                .select(DSL.selectCount().from(USER_ALBUM_FAVORITE).where(USER_ALBUM_FAVORITE.USER_ID.eq(userId),USER_ALBUM_FAVORITE.ID.eq(ALBUM.ID)).asField("isFavorite"))
+                .select(DSL.selectCount().from(USER_ALBUM_PRAISE).where(USER_ALBUM_PRAISE.USER_ID.eq(userId),USER_ALBUM_PRAISE.ID.eq(ALBUM.ID)).asField("isPraise"))
+                .select(dslContext.select(DSL.isnull(DSL.sum(USER_ALBUM_COMMENT.RATE),0)).from(USER_ALBUM_COMMENT).where(USER_ALBUM_COMMENT.ALBUM_ID.eq(ALBUM.ID)).asField("rate"))
+                .from(ALBUM);
+
+        boolean flag = true;
+
+        if (StringUtils.isNotBlank(rate)){
+            selectAlbum.orderBy(DSL.field("rate").desc());
+        }
+
+        if(StringUtils.isNotBlank(recommend)){
+            selectAlbum.where(ALBUM.IS_BANNER.notEqual(1)).orderBy(DSL.rand());
+        }
+
+        if (StringUtils.isNotBlank(favorite)){
+            selectAlbum.rightJoin(USER_ALBUM_FAVORITE)
+                    .on(USER_ALBUM_FAVORITE.ALBUM_ID.eq(ALBUM.ID))
+                    .where(USER_ALBUM_FAVORITE.USER_ID.eq(userId))
+                    .orderBy(USER_ALBUM_FAVORITE.CREATE_TIME.desc());
+            flag = false;
+        }
+
+        if (StringUtils.isNotBlank(read)){
+            selectAlbum.rightJoin(USER_ALBUM_READ)
+                    .on(USER_ALBUM_READ.ALBUM_ID.eq(ALBUM.ID))
+                    .where(USER_ALBUM_READ.USER_ID.eq(userId))
+                    .orderBy(USER_ALBUM_READ.LAST_READ_TIME.desc());
+            flag = false;
+        }
+
+        if (StringUtils.isNotBlank(hot)){
+            Table<Record2<Integer, Integer>> hotAlbumTable =
+                    dslContext.select(USER_ALBUM_READ.ALBUM_ID, DSL.count().as("count")).from(USER_ALBUM_READ)
+                            .groupBy(USER_ALBUM_READ.ALBUM_ID).asTable("hotAlbum");
+            selectAlbum.rightJoin(hotAlbumTable)
+                    .on(hotAlbumTable.field("album_id", Integer.class).eq(ALBUM.ID))
+                    .orderBy(hotAlbumTable.field("count").desc());
+            flag = false;
+        }
+
+        if (StringUtils.isNotBlank(banner)){
+            selectAlbum.where(ALBUM.ID.in(
+                    dslContext.select(BANNER.ALBUM_ID).from(BANNER).orderBy(BANNER.SORT)
+            ));
+        }
+
+        if (StringUtils.isNotBlank(categoryName)) {
+            selectAlbum.where(ALBUM.ID.in(
+                    dslContext.select(ALBUM_CATEGORY.ALBUM_ID).from(ALBUM_CATEGORY).where(ALBUM_CATEGORY.CATEGORY_ID.eq(
+                            dslContext.select(CATEGORY.ID).from(CATEGORY).where(CATEGORY.NAME.eq(categoryName))
+                    ))
+            ));
+        }
+
+        if(StringUtils.isNotBlank(download)){
+            selectAlbum.orderBy(ALBUM.DOWNLOAD_TIME.desc());
+
+        }
+
+        String serverName =request.getServerName();
+
+
+        //根据域名做过滤
+        if ("albumline_data.intranet.net".equalsIgnoreCase(serverName)){
+            selectAlbum.where(ALBUM.ACCESS_TYPE.eq("1"));
+        } else if ("album_data.intranet.net".equalsIgnoreCase(serverName)){
+            selectAlbum.where(ALBUM.ACCESS_TYPE.eq("2"));
+        }
+        else if("albumpure_data.intranet.net".equalsIgnoreCase(serverName)){
+            selectAlbum.where(ALBUM.ACCESS_TYPE.eq("3"));
+        }
+        else if ("albumoomph_data.intranet.net".equalsIgnoreCase(serverName)){
+            selectAlbum.where(ALBUM.ACCESS_TYPE.eq("4"));
+        }
+        selectAlbum.where(ALBUM.IS_PUTAWAY.eq("1"));
+        selectAlbum.where(ALBUM.CHANNEL_NUM.eq(channelNum).or(ALBUM.CHANNEL_NUM.isNull()).or(ALBUM.CHANNEL_NUM.eq("")));
+
+        if (flag){
+            selectAlbum.where(ALBUM.IS_BANNER.notEqual(1)).orderBy(ALBUM.PUTAWAY_TIME.desc());
+        }
+
+        //加上limit 再查询套图列表
+        List<Album> albums = selectAlbum.limit(offset, limit).fetchInto(Album.class);
+
+        //循环套图，获取对应的类别
+        for (Album album : albums) {
+            List<String> categorys = dslContext.select(CATEGORY.NAME).from(CATEGORY).where(CATEGORY.ID.in(
+                    dslContext.select(ALBUM_CATEGORY.ID).from(ALBUM_CATEGORY).where(ALBUM_CATEGORY.ALBUM_ID.eq(album.getId()))
+            )).fetchInto(String.class);
+            album.setCategory(categorys);
+        }
+        apiResponse.setSuccessData(albums);
+        return apiResponse;
+    }
+
+    /**
+     *
+     * @param userId
+     * @param albumId
+     * 相册详情页,不返回图片URL
+     * @return
+     */
+    @RequestMapping("/getAnAlbum/list/{albumId}")
+    @ResponseBody
+    public ApiResponse getAnAlbum(@RequestHeader Integer userId,
+                                  @PathVariable("albumId") Integer albumId){
+        ApiResponse apiResponse = new ApiResponse();
+        SelectJoinStep<Record> selectAlbum = dslContext.select(ALBUM.fields())
+                .select(dslContext.selectCount().from(USER_ALBUM_COMMENT).where(USER_ALBUM_COMMENT.ALBUM_ID.eq(ALBUM.ID)).asField("commentAmount"))
+                .select(dslContext.selectCount().from(USER_ALBUM_FAVORITE).where(USER_ALBUM_FAVORITE.ALBUM_ID.eq(ALBUM.ID)).asField("favoriteAmount"))
+                .select(dslContext.selectCount().from(USER_ALBUM_PRAISE).where(USER_ALBUM_PRAISE.ALBUM_ID.eq(ALBUM.ID)).asField("praiseAmount"))
+                .select(dslContext.selectCount().from(USER_ALBUM_READ).where(USER_ALBUM_READ.ALBUM_ID.eq(ALBUM.ID)).asField("readAmount"))
+                .select(DSL.selectCount().from(USER_ALBUM_FAVORITE).where(USER_ALBUM_FAVORITE.USER_ID.eq(userId),USER_ALBUM_FAVORITE.ALBUM_ID.eq(ALBUM.ID)).asField("isFavorite"))
+                .select(DSL.selectCount().from(USER_ALBUM_PRAISE).where(USER_ALBUM_PRAISE.USER_ID.eq(userId),USER_ALBUM_PRAISE.ALBUM_ID.eq(ALBUM.ID)).asField("isPraise"))
+                .select(dslContext.select(DSL.sum(USER_ALBUM_COMMENT.RATE)).from(USER_ALBUM_COMMENT).where(USER_ALBUM_COMMENT.ALBUM_ID.eq(ALBUM.ID)).asField("rate"))
+                .from(ALBUM);
+
+        selectAlbum.where(ALBUM.ID.eq(albumId));
+        Album album = selectAlbum.fetchOneInto(Album.class);
+        apiResponse.setSuccessData(album);
+        return apiResponse;
+    }
+
+
+    /**
+     * 返回指定相册详情页，
+     * 包括对应的图片url，针对相册的点赞数量，收藏数量，评论数量，阅读次数，总分数。以及该手机用户是否点赞或者收藏
+     * @param albumId
+     * @return
+     */
+    @RequestMapping("/{albumId}/picture/list")
+    @ResponseBody
+    public ApiResponse getAlbumPicture(@PathVariable Integer albumId,
+                                       @RequestHeader Integer userId) {
+        ApiResponse apiResponse = new ApiResponse();
+        //这里是插入已读表
+        Boolean exists =dslContext.fetchExists(dslContext.selectFrom(USER_ALBUM_READ)
+                        .where(USER_ALBUM_READ.USER_ID.eq(userId)).and(USER_ALBUM_READ.ALBUM_ID.eq(albumId)));
+        if (exists) {
+            dslContext.update(USER_ALBUM_READ)
+                    .set(USER_ALBUM_READ.ALBUM_ID,albumId)
+                    .where(USER_ALBUM_READ.USER_ID.eq(userId))
+                    .and(USER_ALBUM_READ.ALBUM_ID.eq(albumId))
+                    .execute();
+        } else {
+            dslContext.insertInto(USER_ALBUM_READ).columns(USER_ALBUM_READ.USER_ID,USER_ALBUM_READ.ALBUM_ID).values(userId,albumId).execute();
+        }
+        //上面都是插入已读
+        //下面返回详情页内容以及图片地址
+        SelectJoinStep<Record> selectPicture = dslContext.select(PICTURE.fields())//这个是选中Album中的所有列的意思
+                .select(dslContext.selectCount().from(USER_ALBUM_COMMENT).where(USER_ALBUM_COMMENT.ALBUM_ID.eq(albumId)).asField("commentAmount"))
+                .select(dslContext.selectCount().from(USER_ALBUM_FAVORITE).where(USER_ALBUM_FAVORITE.ALBUM_ID.eq(albumId)).asField("favoriteAmount"))
+                .select(dslContext.selectCount().from(USER_ALBUM_PRAISE).where(USER_ALBUM_PRAISE.ALBUM_ID.eq(albumId)).asField("praiseAmount"))
+                .select(dslContext.selectCount().from(USER_ALBUM_READ).where(USER_ALBUM_READ.ALBUM_ID.eq(albumId)).asField("readAmount"))
+                .select(DSL.selectCount().from(USER_ALBUM_FAVORITE).where(USER_ALBUM_FAVORITE.USER_ID.eq(userId),USER_ALBUM_FAVORITE.ALBUM_ID.eq(albumId)).asField("isFavorite"))//该用户是否收藏
+                .select(DSL.selectCount().from(USER_ALBUM_PRAISE).where(USER_ALBUM_PRAISE.USER_ID.eq(userId),USER_ALBUM_PRAISE.ALBUM_ID.eq(albumId)).asField("isPraise"))//该用户是否点赞
+                .select(dslContext.select(DSL.isnull(DSL.sum(USER_ALBUM_COMMENT.RATE),0)).from(USER_ALBUM_COMMENT).where(USER_ALBUM_COMMENT.ALBUM_ID.eq(albumId)).asField("rate"))//总分
+                .from(PICTURE);
+        selectPicture.where(PICTURE.ID.in(dslContext.select(ALBUM_PICTURE.PICTURE_ID).from(ALBUM_PICTURE).where(ALBUM_PICTURE.ALBUM_ID.eq(albumId))));
+        List<Picture> PictureAlbum = selectPicture.fetchInto(Picture.class);
+        apiResponse.setSuccessData(PictureAlbum);
+        return apiResponse;
+    }
+
+}
+

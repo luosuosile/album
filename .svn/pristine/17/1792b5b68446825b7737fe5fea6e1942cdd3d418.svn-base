@@ -1,0 +1,119 @@
+package com.yz.album.api.v1;
+
+import com.yz.album.api.ApiVersion;
+import com.yz.album.api.BaseApi;
+import com.yz.album.api.dto.ApiResponse;
+import com.yz.album.api.dto.User;
+import com.yz.album.orm.tables.records.UserRecord;
+import org.apache.commons.lang3.StringUtils;
+import org.jooq.UpdateQuery;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.BeanPropertyRowMapper;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.text.ParseException;
+import java.util.ArrayList;
+import java.util.List;
+
+@RestController("UserApi_v1")
+@RequestMapping("/{version}/user")
+@ApiVersion(1)
+public class UserApi extends BaseApi {
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    //创建账号
+    public User createAccountAndReturn(String deviceNumber, String channelNumber, String IMSI, String deviceModel, String sdkVersion){
+        int random = (int) (1 + Math.random() * (1000 - 1 + 1));
+        /***************这是注册****************/
+        User user  = dslContext.insertInto(USER)
+                .columns(USER.DEVICE_NUM, USER.NICKNAME,USER.HEAD_PICTURE,USER.CHANNEL_NUM,USER.IMSI,USER.DEVICE_MODEL,USER.SDK_VERSION)
+                .values(deviceNumber,"Teman serigala " + random,
+                        "http://imageline.onlinewait.net/upload/2017/headpicture/1.png",channelNumber,IMSI,
+                        deviceModel,sdkVersion).returning().fetchOne().into(User.class);
+        return user;
+    }
+
+    //登陆记录
+    public void userOpenRecord(Integer userId){
+        dslContext.insertInto(LOGIN_LOG).columns(LOGIN_LOG.USER_ID).values(userId).execute();
+    }
+
+    //IMSI如果App一开始没有传入，重新传入
+    public void supplementIMSI(String IMSI,String deviceNumber,Integer userId){
+        if(!deviceNumber.equals("")) {
+            dslContext.update(USER).set(USER.IMSI,IMSI).where(USER.DEVICE_NUM.eq(deviceNumber)).execute();
+        }
+        else{
+            if (userId!=null)
+            dslContext.update(USER).set(USER.IMSI,IMSI).where(USER.ID.eq(userId)).execute();
+        }
+    }
+
+    /************上面是补丁代码****************/
+
+    @RequestMapping("/devnum")
+    public ApiResponse postUserId(@RequestParam() String deviceNumber
+            , @RequestHeader(required = false) Integer userId
+            , @RequestHeader(required = false) String channelNum
+            , @RequestParam(required = false) String IMSI
+            , @RequestParam(required = false) String deviceModel
+            , @RequestParam(required = false) String sdkVersion) throws ParseException {
+
+        User user;
+        ApiResponse apiResponse = new ApiResponse();
+        Boolean exists =dslContext.fetchExists(dslContext.selectFrom(USER).where(USER.DEVICE_NUM.eq(deviceNumber)));
+        //有机器码就注册，没机器码就登陆
+        if(exists&&deviceNumber!=null&&!deviceNumber.equals("")){
+            user = dslContext.selectFrom(USER).where(USER.DEVICE_NUM.eq(deviceNumber)).limit(1).fetchOneInto(User.class);
+        }
+        else{
+            if (deviceNumber==null||deviceNumber.equals("")){
+                user = createAccountAndReturn("",channelNum,IMSI,deviceModel,sdkVersion);
+                userOpenRecord(user.getId());
+                if(user.getImsi()!=IMSI&&IMSI!=null) {
+                    supplementIMSI(IMSI, deviceNumber, userId);
+                }
+            }
+            else {
+                user = createAccountAndReturn(deviceNumber, channelNum, IMSI, deviceModel, sdkVersion);
+            }
+        }
+        apiResponse.setSuccessData(user);
+
+        return apiResponse;
+    }
+
+    @RequestMapping("/edit")
+    public ApiResponse change(@RequestParam(required = false) String headPicture,
+                              @RequestParam(required = false) String nickname,
+                              @RequestHeader Integer userId){
+        ApiResponse apiResponse = new ApiResponse();
+        boolean exists = dslContext.fetchExists(dslContext.selectFrom(USER).where(USER.ID.eq(userId)));
+        //
+        if (exists) {
+            if (StringUtils.isNotBlank(headPicture) || StringUtils.isNotBlank(nickname)){
+                UpdateQuery<UserRecord> updateUser = dslContext.updateQuery(USER);
+                if (StringUtils.isNotBlank(headPicture)) {
+                    updateUser.addValue(USER.HEAD_PICTURE, headPicture);
+                }
+                if (StringUtils.isNotBlank(nickname)) {
+                    updateUser.addValue(USER.NICKNAME, nickname);
+                }
+                updateUser.addConditions(USER.ID.eq(userId));
+                updateUser.execute();
+            }
+            User user = dslContext.selectFrom(USER).where(USER.ID.eq(userId)).fetchOneInto(User.class);
+            apiResponse.setSuccessData(user);
+        } else {
+            apiResponse.setFailureMsg("X2", "你的userId不对或者用户不存在");
+        }
+        return apiResponse;
+    }
+
+}

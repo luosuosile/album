@@ -1,0 +1,141 @@
+package com.yz.album.util;
+
+import javax.crypto.BadPaddingException;
+import javax.crypto.Cipher;
+import javax.crypto.IllegalBlockSizeException;
+import javax.crypto.NoSuchPaddingException;
+import javax.crypto.spec.IvParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
+import java.io.UnsupportedEncodingException;
+import java.security.InvalidAlgorithmParameterException;
+import java.security.InvalidKeyException;
+import java.security.NoSuchAlgorithmException;
+
+public class AesUtil {
+    public static final String VIPARA = "1269571569321021";
+    public static final String bm = "utf-8";
+
+    /**
+     * 字节数组转化为大写16进制字符串
+     * @param
+     * @return
+     */
+    private static String byte2HexStr(byte[] b) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < b.length; i++) {
+            String s = Integer.toHexString(b[i] & 0xFF);
+            if (s.length() == 1) {
+                sb.append("0");
+            }
+
+            sb.append(s.toUpperCase());
+        }
+
+        return sb.toString();
+    }
+
+    /**
+     * 16进制字符串转字节数组
+     * @param s
+     * @return
+     */
+    private static byte[] str2ByteArray(String s) {
+        int byteArrayLength = s.length() / 2;
+        byte[] b = new byte[byteArrayLength];
+        for (int i = 0; i < byteArrayLength; i++) {
+            byte b0 = (byte) Integer.valueOf(s.substring(i * 2, i * 2 + 2), 16)
+                    .intValue();
+            b[i] = b0;
+        }
+
+        return b;
+    }
+
+
+    /**
+     * AES 加密
+     *
+     * @param content
+     *            明文
+     * @param password
+     *            生成秘钥的关键字
+     * @return
+     */
+
+    public static String aesEncrypt(String content, String password) {
+        try {
+            IvParameterSpec zeroIv = new IvParameterSpec(VIPARA.getBytes());
+            SecretKeySpec key = new SecretKeySpec(password.getBytes(), "AES");
+            Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+            cipher.init(Cipher.ENCRYPT_MODE, key, zeroIv);
+            byte[] encryptedData = cipher.doFinal(content.getBytes(bm));
+
+            return Base64.encode(encryptedData);
+//          return byte2HexStr(encryptedData);
+        } catch (NoSuchAlgorithmException e) {
+            e.printStackTrace();
+        } catch (NoSuchPaddingException e) {
+            e.printStackTrace();
+        } catch (UnsupportedEncodingException e) {
+            e.printStackTrace();
+        } catch (InvalidKeyException e) {
+            e.printStackTrace();
+        } catch (IllegalBlockSizeException e) {
+            e.printStackTrace();
+        } catch (BadPaddingException e) {
+            e.printStackTrace();
+        } catch (InvalidAlgorithmParameterException e) {
+            // TODO Auto-generated catch block
+            e.printStackTrace();
+        }
+        return null;
+    }
+    /**
+     * AES 解密
+     *
+     * @param content
+     *            密文
+     * @param password
+     *            生成秘钥的关键字
+     * @return
+     */
+
+    public static String aesDecrypt(String content, String password) {
+        try {
+            byte[] byteMi = Base64.decode(content);
+//          byte[] byteMi=  str2ByteArray(content);
+            IvParameterSpec zeroIv = new IvParameterSpec(VIPARA.getBytes());
+            SecretKeySpec key = new SecretKeySpec(password.getBytes(), "AES");
+            Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+            cipher.init(Cipher.DECRYPT_MODE, key, zeroIv);
+            byte[] decryptedData = cipher.doFinal(byteMi);
+            return new String(decryptedData, "utf-8");
+        } catch (NoSuchAlgorithmException e) {
+            e.printStackTrace();
+        } catch (NoSuchPaddingException e) {
+            e.printStackTrace();
+        } catch (InvalidKeyException e) {
+            e.printStackTrace();
+        } catch (IllegalBlockSizeException e) {
+            e.printStackTrace();
+        } catch (BadPaddingException e) {
+            e.printStackTrace();
+        } catch (UnsupportedEncodingException e) {
+            e.printStackTrace();
+        } catch (InvalidAlgorithmParameterException e) {
+            // TODO Auto-generated catch block
+            e.printStackTrace();
+        }
+        return null;
+    }
+
+    public static void main(String[] args) {
+        String AesContent = AesUtil.aesEncrypt("thisistest","1259632153695615");
+        System.out.println(AesContent);
+        System.out.println(AesUtil.aesDecrypt("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 R9ZqBX36Oim4+nkk5BO6","1259632153695615"));
+
+
+    }
+
+}
+

@@ -1,0 +1,36 @@
+package com.yz.album.api.v1;
+
+
+import com.yz.album.api.ApiVersion;
+import com.yz.album.api.BaseApi;
+import com.yz.album.api.dto.ApiResponse;
+import com.yz.album.api.dto.HeadPicture;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.BeanPropertyRowMapper;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
+
+@RestController("HeadPictureApi_v1")
+@RequestMapping("/{version}/headPicture")
+@ApiVersion(1)
+public class HeadPictureApi extends BaseApi {
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    //返回所有默认头像
+    @RequestMapping("/list")
+    public ApiResponse headPictureList(){
+        ApiResponse apiResponse = new ApiResponse();
+
+        String sql = "SELECT *  FROM head_picture ";
+
+        List<HeadPicture> headPictures = jdbcTemplate.query(sql, new BeanPropertyRowMapper<HeadPicture>(HeadPicture.class));
+
+        apiResponse.setSuccessData(headPictures);
+        return apiResponse;
+    }
+
+}
